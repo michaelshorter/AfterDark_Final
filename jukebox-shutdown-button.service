@@ -1,0 +1,11 @@
+[Unit]
+Description=Jukebox GPIO shutdown button
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/jukebox/AfterDark2_DualScreen_v2/shutdown_button.py
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
