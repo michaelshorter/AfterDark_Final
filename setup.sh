@@ -21,7 +21,7 @@ cat > ~/.config/autostart/jukebox.desktop << EOF
 [Desktop Entry]
 Type=Application
 Name=AfterDark Jukebox
-Exec=/home/jukebox/AfterDark2/run_jukebox.sh
+Exec=/home/jukebox/AfterDark2_DualScreen_v2/run_jukebox.sh
 EOF
 
 # Generate idle images
