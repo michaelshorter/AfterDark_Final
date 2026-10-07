@@ -24,25 +24,153 @@ connected for development without the app appearing on it.
 - `led_test.py` - standalone script for testing the LED brightness and
   flicker behaviour without running the full app.
 
-## First-time setup
+## Building this on a new Pi from scratch
+
+This is the full sequence, including everything that tripped us up the
+first few times.
+
+### 1. Flash the SD card
+
+Use Raspberry Pi Imager:
+
+- Device: Raspberry Pi 5
+- OS: Raspberry Pi OS (64-bit), full desktop version (not Lite - VLC and
+  the display need a desktop session)
+- Advanced options (gear icon / Cmd+Shift+X before writing): set hostname
+  to `jukebox`, username `jukebox`, a password you'll remember, configure
+  Wi-Fi if needed, and enable SSH under Services
+
+### 2. Boot it and set these three things before anything else
 
 ```bash
-git clone git@github.com:michaelshorter/AfterDark_Final.git ~/AfterDark2_DualScreen_v2
+sudo raspi-config nonint do_boot_behaviour B4   # desktop autologin
+sudo raspi-config nonint do_wayland W1           # switch to X11
+sudo reboot
+```
+
+**Desktop autologin** is required or the autostart entry never fires.
+**X11, not Wayland**, is required because the small-screen detection and
+rotation both rely on `xrandr`, which Wayland doesn't support the same
+way. Skipping this step is the most common reason the app doesn't appear
+anywhere.
+
+After rebooting, confirm:
+
+```bash
+echo $XDG_SESSION_TYPE
+```
+
+should print `x11`.
+
+If a physical keyboard is attached and an on-screen keyboard keeps
+popping up, disable it:
+
+```bash
+systemctl --user disable --now squeekboard
+```
+
+### 3. Clone the repo and run setup
+
+```bash
+git clone https://github.com/michaelshorter/AfterDark_Final.git ~/AfterDark2_DualScreen_v2
 cd ~/AfterDark2_DualScreen_v2
 bash setup.sh
 ```
 
-This installs everything needed and sets the app to start automatically
-on boot, once desktop autologin is enabled
-(`sudo raspi-config` -> System Options -> Boot / Auto Login -> Desktop
-Autologin).
+This installs VLC, the Python virtual environment, and the autostart
+entry. A `debconf`/`apt-listchanges` error partway through is harmless and
+can be ignored - it's leftover noise from how `requirements.txt` was
+originally generated, not a real dependency.
 
-To install the shutdown button service:
+Afterwards, double check the autostart entry actually has the right path
+(this has broken before after a fresh clone):
+
+```bash
+cat ~/.config/autostart/jukebox.desktop
+```
+
+The `Exec=` line should read
+`/home/jukebox/AfterDark2_DualScreen_v2/run_jukebox.sh`. If it doesn't,
+overwrite it directly:
+
+```bash
+cat > ~/.config/autostart/jukebox.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=AfterDark Jukebox
+Exec=/home/jukebox/AfterDark2_DualScreen_v2/run_jukebox.sh
+EOF
+```
+
+### 4. Install the shutdown button service
 
 ```bash
 sudo cp jukebox-shutdown-button.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now jukebox-shutdown-button
+```
+
+### A note on wooden tokens and the IR beam sensor
+
+Thin wood (we used 2mm plywood) can be more transparent to the sensor's
+infrared light than it looks to the eye, even held flat across the beam -
+the receiver can still see enough IR passing through the wood grain to
+read as "beam intact". A small spot of masking tape across the exact spot
+where the beam crosses the token fixes this reliably. If tokens stop being
+detected on a different wood type or thickness, this is the first thing
+to check.
+
+### 5. Wire up the hardware
+
+- **Beam sensor** -> GPIO18 (physical pin 12). Double check against the
+  physical pin, not just a count along a row - GPIO17 (pin 11) is an easy
+  mix-up one pin over.
+- **Shutdown button** -> GPIO3 (physical pin 5) and any GND pin. No
+  resistor needed, GPIO3 has a built-in pull-up. Note: on the Pi 5 this
+  only handles clean shutdown, not wake-from-off - GPIO3's wake feature
+  from earlier Pi models doesn't work on the Pi 5. Powering back on just
+  needs mains power restored (via a switch or smart plug), since the Pi 5
+  always cold-boots when it senses power.
+- **LED strip** -> via the MOSFET module's signal pin on GPIO12, VIN from
+  a separate 5V/12V supply (matching your strip), GND shared with the Pi.
+  The MOSFET module's own VCC pin isn't needed for basic switching on the
+  Gravity-style module - signal and GND alone are enough.
+- Give the LED strip's power supply its own mains socket if possible
+  rather than sharing a strip with the Pi - a shared ground path between
+  PWM switching and audio has caused an audible hum through the screen's
+  HDMI audio before.
+
+### 6. Verify GPIO pins aren't already claimed before testing
+
+A stray test script left running in the background will block the real
+app with a `GPIO busy` error. Before running `run_jukebox.sh`, check:
+
+```bash
+ps aux | grep python
+```
+
+Only `shutdown_button.py` should be running as its own service. Kill
+anything else:
+
+```bash
+kill -9 <PID>
+```
+
+Always stop test scripts with **Ctrl+C**, not Ctrl+Z - Ctrl+Z suspends
+the process rather than ending it, which leaves it holding the GPIO pin.
+
+### 7. Test, then reboot to confirm autostart
+
+```bash
+cd ~/AfterDark2_DualScreen_v2
+./run_jukebox.sh
+```
+
+Once that runs cleanly with the USB drive and screens connected, reboot
+and confirm it starts itself with no manual commands:
+
+```bash
+sudo reboot
 ```
 
 ## Changing the config variables
